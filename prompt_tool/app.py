@@ -5,10 +5,12 @@ AI 提示词超级工作台 - Linear/Vercel 级专业 SaaS 界面
 配色方案：Emerald→Blue 渐变 (#10B981 → #3B82F6)
 字体系统：Plus Jakarta Sans（标题）/ Inter（正文）/ JetBrains Mono（代码）
 布局：顶部导航栏 + 分类 Tab 横向滚动 + Bento 卡片网格
+API 接入：智谱清言 BigModel (glm-4.7-flash 30B 级 SOTA，支持思考模式)
 """
 
 import streamlit as st
 from prompts_data import PROMPTS_DATA
+from openai import OpenAI
 
 # ==========================================
 # 页面配置
@@ -29,6 +31,16 @@ if "results" not in st.session_state:
     st.session_state.results = {}
 if "selected_category" not in st.session_state:
     st.session_state.selected_category = "全部"
+if "show_settings" not in st.session_state:
+    st.session_state.show_settings = False
+if "api_key" not in st.session_state:
+    st.session_state.api_key = ""
+if "base_url" not in st.session_state:
+    st.session_state.base_url = "https://open.bigmodel.cn/api/paas/v4"
+if "model_name" not in st.session_state:
+    st.session_state.model_name = "glm-4.7-flash"
+if "api_provider" not in st.session_state:
+    st.session_state.api_provider = "智谱清言 (BigModel)"
 
 # ==========================================
 # 设计系统 - CSS 注入（核心！）
@@ -361,69 +373,6 @@ div[data-testid="stHorizontalBlock"] button[kind="primary"]:active {
     margin-bottom: var(--section-gap);
 }
 
-.settings-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1.25rem;
-    background: var(--glass-bg);
-    backdrop-filter: blur(16px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
-    cursor: pointer;
-    transition: var(--transition-base);
-}
-
-.settings-header:hover {
-    border-color: rgba(16, 185, 129, 0.2);
-}
-
-.settings-icon {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.15);
-    border-radius: var(--radius-sm);
-    font-size: 0.875rem;
-    transition: var(--transition-base);
-}
-
-.settings-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    letter-spacing: 0.01em;
-}
-
-.settings-toggle-icon {
-    margin-left: auto;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    transition: transform 0.2s ease;
-}
-
-.settings-toggle-icon.open {
-    transform: rotate(180deg);
-}
-
-.settings-body {
-    margin-top: 0.5rem;
-    padding: 1.25rem;
-    background: var(--glass-bg);
-    backdrop-filter: blur(16px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
-    animation: slideDown 0.2s ease;
-}
-
-@keyframes slideDown {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
 /* =====================
    6. 提示词卡片（精致玻璃拟态）
    ===================== */
@@ -698,6 +647,19 @@ div[data-testid="stHorizontalBlock"] button[kind="primary"]:active {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* 流式输出光标闪烁效果 */
+.stream-cursor::after {
+    content: '';
+    animation: blink 1s step-end infinite;
+    color: var(--accent-primary);
+    font-weight: bold;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
 /* =====================
    10. Toast 通知
    ===================== */
@@ -945,9 +907,9 @@ function showToast(message, type) {
     toast.className = 'toast ' + type;
 
     var icon = '';
-    if (type === 'success') icon = '<span style=\"margin-right:6px\">✓</span>';
-    else if (type === 'error') icon = '<span style=\"margin-right:6px\">✕</span>';
-    else if (type === 'warning') icon = '<span style=\"margin-right:6px\">⚠</span>';
+    if (type === 'success') icon = '<span style="margin-right:6px">✓</span>';
+    else if (type === 'error') icon = '<span style="margin-right:6px">✕</span>';
+    else if (type === 'warning') icon = '<span style="margin-right:6px"></span>';
 
     toast.innerHTML = icon + message;
     document.body.appendChild(toast);
@@ -969,7 +931,7 @@ function showToast(message, type) {
 // =====================
 function copyToClipboard(text, btnElement) {
     navigator.clipboard.writeText(text).then(function() {
-        btnElement.innerHTML = '<span style=\"margin-right:4px\">✓</span>已复制';
+        btnElement.innerHTML = '<span style="margin-right:4px">✓</span>已复制';
         btnElement.classList.add('copied');
         showToast('提示词已复制到剪贴板', 'success');
         setTimeout(function() {
@@ -1033,7 +995,6 @@ function createRipple(event) {
     ripple.style.animation = 'ripple 0.6s ease-out';
     ripple.style.pointerEvents = 'none';
 
-    // Ensure button is positioned
     var style = window.getComputedStyle(button);
     if (style.position === 'static') {
         button.style.position = 'relative';
@@ -1044,12 +1005,10 @@ function createRipple(event) {
     setTimeout(function() { ripple.remove(); }, 600);
 }
 
-// Ripple keyframe
 var rippleStyle = document.createElement('style');
 rippleStyle.textContent = '@keyframes ripple { to { transform: scale(4); opacity: 0; } }';
 document.head.appendChild(rippleStyle);
 
-// 为 Streamlit 按钮添加 ripple
 function initRippleEffects() {
     var buttons = document.querySelectorAll('.stButton > button:not([data-ripple])');
     buttons.forEach(function(btn) {
@@ -1095,7 +1054,6 @@ var observer = new MutationObserver(function() {
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
-// 定期清理
 setInterval(cleanExpanderArrows, 3000);
 </script>
 """,
@@ -1187,7 +1145,6 @@ if "show_settings" not in st.session_state:
 # ==========================================
 st.markdown('<div class="settings-section">', unsafe_allow_html=True)
 
-# 自定义设置头部
 settings_toggle_label = "▼ 收起设置" if st.session_state.show_settings else "▶ API 设置 & 卡密充值"
 toggle_col1, toggle_col2 = st.columns([1, 10])
 with toggle_col1:
@@ -1207,31 +1164,93 @@ with toggle_col2:
 if st.session_state.show_settings:
     st.markdown('<div class="settings-body">', unsafe_allow_html=True)
 
+    # ==================== API 服务商选择 ====================
+    API_PROVIDERS = {
+        "智谱清言 (BigModel)": {
+            "base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "models": ["glm-4.7-flash", "glm-4-flash", "glm-4", "glm-4-air", "glm-4-flashx"],
+            "help_key": "🔑 获取方式：访问 https://open.bigmodel.cn → 注册登录 → API 密钥 → 创建密钥",
+            "help_model": " glm-4.7-flash: 30B 级 SOTA，编码/写作/前端审美最强（推荐）",
+        },
+        "DeepSeek": {
+            "base_url": "https://api.deepseek.com/v1",
+            "models": ["deepseek-chat", "deepseek-reasoner"],
+            "help_key": "🔑 获取方式：访问 https://platform.deepseek.com → 注册登录 → API 密钥",
+            "help_model": " deepseek-chat: 通用对话 / deepseek-reasoner: 深度推理",
+        },
+        "硅基流动 (SiliconFlow)": {
+            "base_url": "https://api.siliconflow.cn/v1",
+            "models": ["Pro/deepseek-ai/DeepSeek-V3", "Pro/deepseek-ai/DeepSeek-R1", "Qwen/Qwen2.5-72B-Instruct"],
+            "help_key": "🔑 获取方式：访问 https://cloud.siliconflow.cn → 注册登录 → API 密钥",
+            "help_model": " 硅基流动提供多种开源模型，按需选择",
+        },
+    }
+
+    api_provider = st.selectbox(
+        "API 服务商",
+        options=list(API_PROVIDERS.keys()),
+        index=list(API_PROVIDERS.keys()).index(st.session_state.api_provider) if st.session_state.api_provider in API_PROVIDERS else 0,
+        help="选择你要使用的 AI API 服务商",
+    )
+
+    # 当切换服务商时，自动更新 base_url 和 model 列表
+    provider_config = API_PROVIDERS[api_provider]
+    if api_provider != st.session_state.api_provider:
+        st.session_state.api_provider = api_provider
+        st.session_state.base_url = provider_config["base_url"]
+        # 尝试保留之前的模型选择（如果在新列表中）
+        if st.session_state.model_name not in provider_config["models"]:
+            st.session_state.model_name = provider_config["models"][0]
+        st.rerun()
+
+    st.markdown('<div style="margin-top: 0.75rem; margin-bottom: 0.25rem;">', unsafe_allow_html=True)
+
     col_api1, col_api2 = st.columns([1, 1])
     with col_api1:
-        api_key = st.text_input(
+        new_api_key = st.text_input(
             "API Key",
+            value=st.session_state.api_key,
             type="password",
             placeholder="请输入你的 API Key",
-            help="你的 API Key 仅保存在本地会话中，不会被上传或记录。",
+            help=provider_config["help_key"],
         )
     with col_api2:
-        base_url = st.text_input(
+        new_base_url = st.text_input(
             "Base URL",
-            value="https://api.siliconflow.cn/v1",
-            help="大模型 API 的基础地址，默认使用硅基流动。",
+            value=st.session_state.base_url,
+            help=f"{api_provider} API 基础地址，可手动修改。",
         )
 
-    model_name = st.selectbox(
+    # 找到默认模型的索引
+    model_options = provider_config["models"]
+    default_idx = model_options.index(st.session_state.model_name) if st.session_state.model_name in model_options else 0
+
+    new_model_name = st.selectbox(
         "选择模型",
-        options=[
-            "Qwen/Qwen2.5-7B-Instruct",
-            "Qwen/Qwen2.5-72B-Instruct",
-            "THUDM/glm-4-9b-chat",
-            "deepseek-ai/DeepSeek-V3",
-        ],
-        index=0,
+        options=model_options,
+        index=default_idx,
+        help=provider_config["help_model"],
     )
+
+    # 保存按钮
+    save_col1, save_col2 = st.columns([1, 1])
+    with save_col1:
+        if st.button("💾 保存配置", use_container_width=True, type="primary"):
+            st.session_state.api_key = new_api_key
+            st.session_state.base_url = new_base_url
+            st.session_state.model_name = new_model_name
+            st.success("配置已保存！")
+
+    with save_col2:
+        if st.button("🔄 重置默认", use_container_width=True, type="secondary"):
+            st.session_state.api_key = ""
+            st.session_state.api_provider = "智谱清言 (BigModel)"
+            st.session_state.base_url = "https://open.bigmodel.cn/api/paas/v4"
+            st.session_state.model_name = "glm-4.7-flash"
+            st.success("已重置为默认配置！")
+            st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
 
@@ -1253,20 +1272,11 @@ if st.session_state.show_settings:
                 st.error("卡密无效，请联系客服获取正确卡密。")
 
     st.markdown('</div>', unsafe_allow_html=True)
-else:
-    api_key = ""
-    base_url = "https://api.siliconflow.cn/v1"
-    model_name = "Qwen/Qwen2.5-7B-Instruct"
 
-st.markdown('</div>', unsafe_allow_html=True)
-
-# 默认值
-if "api_key" not in locals():
-    api_key = ""
-if "base_url" not in locals():
-    base_url = "https://api.siliconflow.cn/v1"
-if "model_name" not in locals():
-    model_name = "Qwen/Qwen2.5-7B-Instruct"
+# 始终从 session_state 读取 API 配置
+api_key = st.session_state.api_key
+base_url = st.session_state.base_url
+model_name = st.session_state.model_name
 
 # ==========================================
 # Bento Grid 卡片展示
@@ -1283,13 +1293,11 @@ if not filtered_prompts:
         unsafe_allow_html=True,
     )
 else:
-    # 使用 Streamlit columns 作为卡片列（CSS 控制响应式）
     cols = st.columns(3)
 
     for idx, prompt in enumerate(filtered_prompts):
         col = cols[idx % 3]
         with col:
-            # 卡片顶部渐变条始终显示
             card_html = f"""
 <div class="prompt-card" style="animation-delay: {idx * 50}ms">
     <span class="card-category">{prompt['category']}</span>
@@ -1318,36 +1326,200 @@ else:
                 label_visibility="collapsed",
             )
 
+            # 生成结果展示容器（使用 placeholder 实现流式更新）
+            result_placeholder = st.empty()
+
             if st.button(
                 "✨ AI 生成",
                 key=f"btn_{prompt['id']}",
                 use_container_width=True,
                 type="primary",
             ):
+                # 前置检查：积分
                 if st.session_state.credits <= 0:
-                    st.error("积分不足！请添加客服微信购买卡密充值！")
+                    st.markdown(
+                        """
+<div style="
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(239, 68, 68, 0.08) 100%);
+    border: 2px solid rgba(245, 158, 11, 0.4);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+    margin: 0.75rem 0;
+    box-shadow: 0 0 24px rgba(245, 158, 11, 0.15);
+    animation: resultSlideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+">
+    <div style="
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+    ">
+        <span style="font-size: 1.25rem;">⚠️</span>
+        <span style="
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #F59E0B;
+            letter-spacing: -0.01em;
+        ">免费体验额度（10次）已用完！</span>
+    </div>
+
+    <div style="margin-bottom: 0.75rem;">
+        <div style="
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 0.875rem;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: var(--radius-md);
+            margin-bottom: 0.5rem;
+        ">
+            <span style="font-size: 1rem;">🎁</span>
+            <span style="color: #F1F5F9; font-size: 0.875rem; font-weight: 500;">
+                添加主理人 <strong style="color: #10B981; font-weight: 700;">小刚</strong> 微信：
+                <span style="
+                    display: inline-block;
+                    padding: 0.125rem 0.5rem;
+                    background: rgba(16, 185, 129, 0.2);
+                    border-radius: 6px;
+                    color: #10B981;
+                    font-family: 'JetBrains Mono', monospace;
+                    font-weight: 700;
+                    font-size: 0.875rem;
+                    letter-spacing: 0.05em;
+                ">esadmin</span>
+                <br>回复暗号 <strong style="color: #F59E0B;">【领积分】</strong>，即可免费获取 <strong style="color: #10B981;">100 积分卡密</strong>！
+            </span>
+        </div>
+    </div>
+
+    <div style="
+        padding: 0.5rem 0.75rem;
+        background: rgba(59, 130, 246, 0.08);
+        border-radius: var(--radius-md);
+        border-left: 3px solid #3B82F6;
+    ">
+        <span style="font-size: 0.8125rem; color: #94A3B8; line-height: 1.6;">
+            📚 同时免费赠送 <strong style="color: #F1F5F9;">《2026国内免费大模型API羊毛指南》</strong>
+            （含智谱、DeepSeek、硅基流动等白嫖教程）<br>
+            🎫 及 <strong style="color: #F1F5F9;">【AI搞钱内部交流群】</strong> 入场券！
+        </span>
+    </div>
+</div>
+""",
+                        unsafe_allow_html=True,
+                    )
+
+                # 前置检查：API Key
+                elif not api_key.strip():
+                    st.error("请先在设置面板填入 API Key！")
+
+                # 前置检查：输入变量
                 elif not user_input.strip():
                     st.warning("请先输入变量内容再生成。")
-                else:
-                    filled_prompt = prompt["template"].replace("[主题]", user_input)
-                    mock_result = (
-                        f"✅ AI 生成完成！（模型：{model_name}）\n\n"
-                        f"--- 替换后的完整提示词 ---\n"
-                        f"{filled_prompt}\n\n"
-                        f"--- AI 生成结果（Mock 模拟） ---\n"
-                        f"这是 AI 针对「{user_input}」生成的精彩内容。\n"
-                        f"当前为 Mock 测试阶段，接入真实 API 后将输出实际生成内容。\n\n"
-                        f"💡 提示：在设置面板填入你的 API Key 和 Base URL 后，"
-                        f"即可切换到真实 AI 调用模式。"
-                    )
-                    st.session_state.credits -= 1
-                    st.session_state.results[f"result_{prompt['id']}"] = mock_result
-                    st.success(f"生成成功！扣除 1 积分，当前剩余 {st.session_state.credits} 积分")
 
-            # 显示之前的生成结果
+                else:
+                    # 替换模板中的 [主题] 变量
+                    filled_prompt = prompt["template"].replace("[主题]", user_input)
+
+                    # 积分扣减标记（移到 try 外部，确保 except 可访问）
+                    first_token_received = False
+
+                    try:
+                        # 初始化智谱清言 OpenAI 客户端
+                        client = OpenAI(api_key=api_key, base_url=base_url)
+
+                        # 构建请求参数
+                        request_params = {
+                            "model": model_name,
+                            "messages": [
+                                {"role": "user", "content": filled_prompt}
+                            ],
+                            "stream": True,
+                        }
+
+                        # 调用 chat.completions.create() 流式输出
+                        response = client.chat.completions.create(**request_params)
+
+                        # 实时流式展示
+                        full_content = ""
+                        reasoning_content = ""  # GLM-4.7 思考过程
+                        first_token_received = False  # 标记：是否已收到第一个 token
+
+                        for chunk in response:
+                            if chunk.choices and len(chunk.choices) > 0:
+                                delta = chunk.choices[0].delta
+                                
+                                # GLM-4.7 思考过程输出
+                                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                                    reasoning_content += delta.reasoning_content
+                                
+                                # 正式内容
+                                if delta.content:
+                                    # 第一个 token 到达时才扣积分
+                                    if not first_token_received:
+                                        first_token_received = True
+                                        st.session_state.credits -= 1
+
+                                    full_content += delta.content
+                                    # 实时更新显示
+                                    display_content = ""
+                                    if reasoning_content:
+                                        display_content += f'<div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-sm); border-left: 2px solid var(--accent-secondary);">💭 思考过程：{reasoning_content}</div>'
+                                    display_content += full_content
+                                    
+                                    result_placeholder.markdown(
+                                        f'<div class="result-area stream-cursor">{display_content}</div>',
+                                        unsafe_allow_html=True,
+                                    )
+
+                        # 流式输出完成，移除光标效果，保存结果
+                        final_content = ""
+                        if reasoning_content:
+                            final_content += f'<div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-sm); border-left: 2px solid var(--accent-secondary);">💭 思考过程：{reasoning_content}</div>'
+                        final_content += full_content
+                        
+                        result_placeholder.markdown(
+                            f'<div class="result-area">{final_content}</div>',
+                            unsafe_allow_html=True,
+                        )
+                        st.session_state.results[f"result_{prompt['id']}"] = final_content
+
+                        # 成功提示（显示剩余积分）
+                        st.success(f"生成成功！扣除 1 积分，当前剩余 {st.session_state.credits} 积分")
+
+                    except Exception as e:
+                        # 详细异常处理
+                        error_type = type(e).__name__
+
+                        if "AuthenticationError" in error_type or "authentication" in str(e).lower():
+                            error_msg = "API Key 无效或余额不足，请检查你的密钥。"
+                            st.error(f"❌ {error_msg}")
+                            st.caption(f"原始错误：{e}")
+
+                        elif "APIConnectionError" in error_type or "connection" in str(e).lower() or "timeout" in str(e).lower():
+                            error_msg = "网络连接失败，请检查 Base URL 是否正确。"
+                            st.error(f"❌ {error_msg}")
+                            st.caption(f"当前 Base URL: {base_url}")
+                            st.caption(f"原始错误：{e}")
+
+                        else:
+                            # 其他异常
+                            error_msg = f"请求失败：{e}"
+                            st.error(f"❌ {error_msg}")
+
+                        # API 调用失败，不扣积分
+                        if not first_token_received:
+                            st.warning("⚠️ 未扣除积分，请重试。")
+
+            # 显示之前的生成结果（非流式状态下的持久化）
+            # 注意：只有在没有刚生成新结果时才显示历史记录
             result_key = f"result_{prompt['id']}"
             if result_key in st.session_state.results:
-                st.markdown(
+                result_placeholder.markdown(
                     f'<div class="result-area">{st.session_state.results[result_key]}</div>',
                     unsafe_allow_html=True,
                 )
