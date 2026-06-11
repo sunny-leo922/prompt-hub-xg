@@ -17,54 +17,71 @@ from openai import OpenAI
 # 页面配置
 # ==========================================
 st.set_page_config(
-    page_title="PromptHub AI - 提示词超级工作台",
+    page_title="小红书爆款文案 AI 制造机",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 # ==========================================
-# LocalStorage 积分持久化（防止刷新重置）
+# LocalStorage 积分持久化 + 激活系统
 # ==========================================
+# JS 从 localStorage 读取值，写入隐藏 DOM 元素，Python 回调同步到 session_state
+if "credits" not in st.session_state:
+    st.session_state.credits = 0
+if "activated" not in st.session_state:
+    st.session_state.activated = False
+
+def _sync_credits_from_js():
+    """回调：从 localStorage（通过 JS 注入的 hidden input）同步到 session_state"""
+    val = st.session_state.get("_credits_input_val", "")
+    if val and st.session_state.activated is False:
+        import json
+        try:
+            data = json.loads(val)
+            st.session_state.credits = data.get("credits", 0)
+            st.session_state.activated = data.get("activated", False)
+        except Exception:
+            pass
+        st.rerun()
+
+def _credits_change_callback():
+    """检测 hidden input 变化，触发同步"""
+    st.session_state._needs_sync = True
+    st.rerun()
+
+# hidden input：JS 在首次渲染后从 localStorage 写入值，触发 callback
+hidden_input_html = f"""
+<div id="hidden-credits-bridge" style="display:none;position:absolute;left:-9999px;">
+    {st.text_input("credits_sync", key="_credits_input_val", label_visibility="hidden", value=st.session_state.get("_credits_input_val", ""), on_change=_credits_change_callback)}
+</div>
+"""
 components.html(
-    """
+    f"""
 <script>
-// 初始化积分：从 LocalStorage 读取，默认 10
-if (window.parent.st_streamlit === undefined) {
-    window.parent.st_streamlit = {};
-}
-var savedCredits = localStorage.getItem('promptHub_credits');
-if (savedCredits === null) {
-    savedCredits = 10;
-    localStorage.setItem('promptHub_credits', savedCredits);
-}
-window.parent.st_streamlit.savedCredits = parseInt(savedCredits);
-
-// 提供全局函数：更新积分到 LocalStorage
-window.parent.st_streamlit.updateCredits = function(newCredits) {
-    localStorage.setItem('promptHub_credits', newCredits);
-};
-
-// 提供全局函数：重置积分
-window.parent.st_streamlit.resetCredits = function() {
-    localStorage.setItem('promptHub_credits', 10);
-};
+(function() {{
+    var credits = parseInt(localStorage.getItem('promptHub_credits'));
+    if (isNaN(credits)) credits = 0;
+    var activated = localStorage.getItem('promptHub_activated') === 'true';
+    
+    // 写入 hidden Streamlit input 触发 callback
+    var input = window.parent.document.querySelector('input[aria-label="credits_sync"]');
+    if (input && input.value === '') {{
+        input.value = JSON.stringify({{credits: credits, activated: activated}});
+        input.dispatchEvent(new Event('change', {{bubbles: true}}));
+        input.dispatchEvent(new Event('input', {{bubbles: true}}));
+    }}
+}})();
 </script>
 """,
     height=0,
     width=0,
 )
 
-# ==========================================
-# Session State 初始化
-# ==========================================
-if "credits" not in st.session_state:
-    # 从 LocalStorage 读取，默认 10
-    st.session_state.credits = 10
-if "credits_loaded" not in st.session_state:
-    st.session_state.credits_loaded = False
-if "results" not in st.session_state:
-    st.session_state.results = {}
+# 同步检测
+if st.session_state.get("_needs_sync", False):
+    st.session_state._needs_sync = False
+    _sync_credits_from_js()
 if "selected_category" not in st.session_state:
     st.session_state.selected_category = "全部"
 if "show_settings" not in st.session_state:
@@ -1105,8 +1122,8 @@ st.markdown(
     <div class="navbar-brand">
         <div class="navbar-logo">P</div>
         <div>
-            <div class="navbar-title">PromptHub AI</div>
-            <div class="navbar-subtitle">提示词超级工作台</div>
+            <div class="navbar-title">小红书爆款文案 AI 制造机</div>
+            <div class="navbar-subtitle">告别憋词，一键生成高赞笔记</div>
         </div>
     </div>
     <div class="credit-badge">
@@ -1124,19 +1141,19 @@ st.markdown(
 st.markdown(
     """
 <div class="hero-section">
-    <h1 class="hero-title">让 AI 提示词产生复利价值</h1>
+    <h1 class="hero-title">小红书爆款文案 AI 制造机</h1>
     <p class="hero-description">
-        精选高质量提示词模板，一键替换变量，AI 即时生成专业内容。
-        <br>覆盖写作、职场、编程、营销、小红书、学习六大场景。
+        告别憋词，一键生成带 Emoji 和网感的高赞笔记。
+        <br>小红书、营销文案、种草笔记，轻松打造爆款。
     </p>
     <div class="hero-steps">
-        <div class="hero-step"><span class="hero-step-num">1</span>选择分类</div>
+        <div class="hero-step"><span class="hero-step-num">1</span>选择赛道</div>
         <span class="hero-arrow">→</span>
-        <div class="hero-step"><span class="hero-step-num">2</span>复制提示词</div>
+        <div class="hero-step"><span class="hero-step-num">2</span>复制爆款模板</div>
         <span class="hero-arrow">→</span>
-        <div class="hero-step"><span class="hero-step-num">3</span>填入变量</div>
+        <div class="hero-step"><span class="hero-step-num">3</span>填入产品名</div>
         <span class="hero-arrow">→</span>
-        <div class="hero-step"><span class="hero-step-num">4</span>AI 生成</div>
+        <div class="hero-step"><span class="hero-step-num">4</span>一键生成</div>
     </div>
 </div>
 """,
@@ -1146,7 +1163,7 @@ st.markdown(
 # ==========================================
 # 分类 Tab 栏
 # ==========================================
-CATEGORIES = ["全部", "写作", "职场", "编程", "营销", "小红书", "学习"]
+CATEGORIES = ["全部", "小红书", "营销"]
 
 st.markdown('<div class="category-tabs">', unsafe_allow_html=True)
 
@@ -1288,21 +1305,54 @@ if st.session_state.show_settings:
 
     with save_col3:
         if st.button(" 重置积分", use_container_width=True, type="secondary"):
-            st.session_state.credits = 10
+            st.session_state.credits = 0
+            st.session_state.activated = False
             components.html(
                 """
 <script>
-    window.parent.st_streamlit.resetCredits();
+    localStorage.setItem('promptHub_credits', 0);
+    localStorage.setItem('promptHub_activated', 'false');
     window.parent.location.reload();
 </script>
 """,
                 height=0,
                 width=0,
             )
-            st.success("积分已重置为 10！")
+            st.success("积分已重置为 0！")
             st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+    st.divider()
+
+    st.markdown('<div style="font-weight:600;font-size:0.875rem;color:var(--text-secondary);margin-bottom:0.5rem;letter-spacing:0.01em;">首次激活</div>', unsafe_allow_html=True)
+    activate_col1, activate_col2 = st.columns([2, 1])
+    with activate_col1:
+        activate_code = st.text_input(
+            "输入激活卡密",
+            placeholder="请输入激活卡密",
+            label_visibility="collapsed",
+            key="activate_input",
+        )
+    with activate_col2:
+        if st.button(" 激活账号", use_container_width=True, type="primary"):
+            if activate_code.strip() == "ACTIVATE2026":
+                st.session_state.credits = 100
+                st.session_state.activated = True
+                components.html(
+                    """
+<script>
+    localStorage.setItem('promptHub_credits', 100);
+    localStorage.setItem('promptHub_activated', 'true');
+</script>
+""",
+                    height=0,
+                    width=0,
+                )
+                st.success("激活成功！已赠送 100 积分！")
+                st.rerun()
+            else:
+                st.error("卡密无效，请联系客服获取正确卡密。")
 
     st.divider()
 
@@ -1311,17 +1361,20 @@ if st.session_state.show_settings:
     with recharge_col1:
         recharge_code = st.text_input(
             "输入卡密",
-            placeholder="请输入充值卡密，例如 VIP2024",
+            placeholder="请输入充值卡密",
             label_visibility="collapsed",
+            key="recharge_input",
         )
     with recharge_col2:
         if st.button("兑换积分", use_container_width=True, type="primary"):
             if recharge_code.strip() == "VIP2024":
                 st.session_state.credits += 100
+                st.session_state.activated = True
                 components.html(
                     f"""
 <script>
-    window.parent.st_streamlit.updateCredits({st.session_state.credits});
+    localStorage.setItem('promptHub_credits', {st.session_state.credits});
+    localStorage.setItem('promptHub_activated', 'true');
 </script>
 """,
                     height=0,
@@ -1359,47 +1412,67 @@ else:
     for idx, prompt in enumerate(filtered_prompts):
         col = cols[idx % 3]
         with col:
-            card_html = f"""
+            # 未激活用户锁定逻辑
+            is_locked = (st.session_state.credits == 0 and st.session_state.activated == False)
+
+            if is_locked:
+                # 渲染锁定卡片：半透明 + 不可点击 + 锁定提示
+                locked_html = f"""
+<div class="prompt-card" style="animation-delay: {idx * 50}ms; opacity: 0.5; pointer-events: none;">
+    <span class="card-category">{prompt['category']}</span>
+    <div class="card-title">{prompt['title']}</div>
+    <div class="card-description">🔒 请激活后使用</div>
+</div>
+"""
+                st.markdown(locked_html, unsafe_allow_html=True)
+            else:
+                card_html = f"""
 <div class="prompt-card" style="animation-delay: {idx * 50}ms">
     <span class="card-category">{prompt['category']}</span>
     <div class="card-title">{prompt['title']}</div>
     <div class="card-description">{prompt['description']}</div>
 """
-            st.markdown(card_html, unsafe_allow_html=True)
+                st.markdown(card_html, unsafe_allow_html=True)
 
-            # 提示词模板 + 复制按钮
-            template_id = f"tmpl_{prompt['id']}"
-            st.markdown(
-                f"""
+                # 提示词模板 + 复制按钮
+                template_id = f"tmpl_{prompt['id']}"
+                st.markdown(
+                    f"""
 <div class="template-area">
     <button class="copy-btn" data-target="{template_id}" onclick="copyToClipboard(document.getElementById('{template_id}').textContent, this)">复制</button>
     <div class="template-preview" id="{template_id}">{prompt['template']}</div>
 </div>
 """,
-                unsafe_allow_html=True,
-            )
+                    unsafe_allow_html=True,
+                )
 
-            # 变量输入 + 生成按钮
-            user_input = st.text_input(
-                "输入变量",
-                key=f"input_{prompt['id']}",
-                placeholder="例如：Python 入门教程",
-                label_visibility="collapsed",
-            )
+                # 变量输入 + 生成按钮
+                user_input = st.text_input(
+                    "输入变量",
+                    key=f"input_{prompt['id']}",
+                    placeholder="例如：Python 入门教程",
+                    label_visibility="collapsed",
+                )
 
-            # 生成结果展示容器（使用 placeholder 实现流式更新）
-            result_placeholder = st.empty()
+                # 生成结果展示容器（使用 placeholder 实现流式更新）
+                result_placeholder = st.empty()
 
-            if st.button(
-                "✨ AI 生成",
-                key=f"btn_{prompt['id']}",
-                use_container_width=True,
-                type="primary",
-            ):
-                # 前置检查：积分
-                if st.session_state.credits <= 0:
-                    st.markdown(
-                        """
+                # 按钮状态：积分不足时禁用
+                btn_disabled = (st.session_state.credits <= 0)
+                btn_text = "🔒 请激活后使用" if btn_disabled else "✨ AI 生成"
+                btn_type = "secondary" if btn_disabled else "primary"
+
+                if st.button(
+                    btn_text,
+                    key=f"btn_{prompt['id']}",
+                    use_container_width=True,
+                    type=btn_type,
+                    disabled=btn_disabled,
+                ):
+                    # 前置检查：积分
+                    if st.session_state.credits <= 0:
+                        st.markdown(
+                            """
 <div style="
     background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(239, 68, 68, 0.08) 100%);
     border: 2px solid rgba(245, 158, 11, 0.4);
@@ -1471,131 +1544,131 @@ else:
     </div>
 </div>
 """,
-                        unsafe_allow_html=True,
-                    )
+                            unsafe_allow_html=True,
+                        )
 
-                # 前置检查：API Key
-                elif not api_key.strip():
-                    st.error("请先在设置面板填入 API Key！")
+                    # 前置检查：API Key
+                    elif not api_key.strip():
+                        st.error("请先在设置面板填入 API Key！")
 
-                # 前置检查：输入变量
-                elif not user_input.strip():
-                    st.warning("请先输入变量内容再生成。")
+                    # 前置检查：输入变量
+                    elif not user_input.strip():
+                        st.warning("请先输入变量内容再生成。")
 
-                else:
-                    # 替换模板中的 [主题] 变量
-                    filled_prompt = prompt["template"].replace("[主题]", user_input)
+                    else:
+                        # 替换模板中的 [主题] 变量
+                        filled_prompt = prompt["template"].replace("[主题]", user_input)
 
-                    # 积分扣减标记（移到 try 外部，确保 except 可访问）
-                    first_token_received = False
+                        # 积分扣减标记（移到 try 外部，确保 except 可访问）
+                        first_token_received = False
 
-                    try:
-                        # 初始化智谱清言 OpenAI 客户端
-                        client = OpenAI(api_key=api_key, base_url=base_url)
+                        try:
+                            # 初始化智谱清言 OpenAI 客户端
+                            client = OpenAI(api_key=api_key, base_url=base_url)
 
-                        # 构建请求参数
-                        request_params = {
-                            "model": model_name,
-                            "messages": [
-                                {"role": "user", "content": filled_prompt}
-                            ],
-                            "stream": True,
-                        }
+                            # 构建请求参数
+                            request_params = {
+                                "model": model_name,
+                                "messages": [
+                                    {"role": "user", "content": filled_prompt}
+                                ],
+                                "stream": True,
+                            }
 
-                        # 调用 chat.completions.create() 流式输出
-                        response = client.chat.completions.create(**request_params)
+                            # 调用 chat.completions.create() 流式输出
+                            response = client.chat.completions.create(**request_params)
 
-                        # 实时流式展示
-                        full_content = ""
-                        reasoning_content = ""  # GLM-4.7 思考过程
-                        first_token_received = False  # 标记：是否已收到第一个 token
+                            # 实时流式展示
+                            full_content = ""
+                            reasoning_content = ""  # GLM-4.7 思考过程
+                            first_token_received = False  # 标记：是否已收到第一个 token
 
-                        for chunk in response:
-                            if chunk.choices and len(chunk.choices) > 0:
-                                delta = chunk.choices[0].delta
-                                
-                                # GLM-4.7 思考过程输出
-                                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-                                    reasoning_content += delta.reasoning_content
-                                
-                                # 正式内容
-                                if delta.content:
-                                    # 第一个 token 到达时才扣积分
-                                    if not first_token_received:
-                                        first_token_received = True
-                                        st.session_state.credits -= 1
-                                        # 同步更新到 LocalStorage
-                                        components.html(
-                                            f"""
+                            for chunk in response:
+                                if chunk.choices and len(chunk.choices) > 0:
+                                    delta = chunk.choices[0].delta
+
+                                    # GLM-4.7 思考过程输出
+                                    if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                                        reasoning_content += delta.reasoning_content
+
+                                    # 正式内容
+                                    if delta.content:
+                                        # 第一个 token 到达时才扣积分
+                                        if not first_token_received:
+                                            first_token_received = True
+                                            st.session_state.credits -= 1
+                                            # 同步更新到 LocalStorage
+                                            components.html(
+                                                f"""
 <script>
     window.parent.st_streamlit.updateCredits({st.session_state.credits});
 </script>
 """,
-                                            height=0,
-                                            width=0,
+                                                height=0,
+                                                width=0,
+                                            )
+
+                                        full_content += delta.content
+                                        # 实时更新显示
+                                        display_content = ""
+                                        if reasoning_content:
+                                            display_content += f'<div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-sm); border-left: 2px solid var(--accent-secondary);">💭 思考过程：{reasoning_content}</div>'
+                                        display_content += full_content
+
+                                        result_placeholder.markdown(
+                                            f'<div class="result-area stream-cursor">{display_content}</div>',
+                                            unsafe_allow_html=True,
                                         )
 
-                                    full_content += delta.content
-                                    # 实时更新显示
-                                    display_content = ""
-                                    if reasoning_content:
-                                        display_content += f'<div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-sm); border-left: 2px solid var(--accent-secondary);">💭 思考过程：{reasoning_content}</div>'
-                                    display_content += full_content
-                                    
-                                    result_placeholder.markdown(
-                                        f'<div class="result-area stream-cursor">{display_content}</div>',
-                                        unsafe_allow_html=True,
-                                    )
+                            # 流式输出完成，移除光标效果，保存结果
+                            final_content = ""
+                            if reasoning_content:
+                                final_content += f'<div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-sm); border-left: 2px solid var(--accent-secondary);">💭 思考过程：{reasoning_content}</div>'
+                            final_content += full_content
 
-                        # 流式输出完成，移除光标效果，保存结果
-                        final_content = ""
-                        if reasoning_content:
-                            final_content += f'<div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; padding: 0.5rem; background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-sm); border-left: 2px solid var(--accent-secondary);">💭 思考过程：{reasoning_content}</div>'
-                        final_content += full_content
-                        
-                        result_placeholder.markdown(
-                            f'<div class="result-area">{final_content}</div>',
-                            unsafe_allow_html=True,
-                        )
-                        st.session_state.results[f"result_{prompt['id']}"] = final_content
+                            result_placeholder.markdown(
+                                f'<div class="result-area">{final_content}</div>',
+                                unsafe_allow_html=True,
+                            )
+                            st.session_state.results[f"result_{prompt['id']}"] = final_content
 
-                        # 成功提示（显示剩余积分）
-                        st.success(f"生成成功！扣除 1 积分，当前剩余 {st.session_state.credits} 积分")
+                            # 成功提示（显示剩余积分）
+                            st.success(f"生成成功！扣除 1 积分，当前剩余 {st.session_state.credits} 积分")
 
-                    except Exception as e:
-                        # 详细异常处理
-                        error_type = type(e).__name__
+                        except Exception as e:
+                            # 详细异常处理
+                            error_type = type(e).__name__
 
-                        if "AuthenticationError" in error_type or "authentication" in str(e).lower():
-                            error_msg = "API Key 无效或余额不足，请检查你的密钥。"
-                            st.error(f"❌ {error_msg}")
-                            st.caption(f"原始错误：{e}")
+                            if "AuthenticationError" in error_type or "authentication" in str(e).lower():
+                                error_msg = "API Key 无效或余额不足，请检查你的密钥。"
+                                st.error(f"❌ {error_msg}")
+                                st.caption(f"原始错误：{e}")
 
-                        elif "APIConnectionError" in error_type or "connection" in str(e).lower() or "timeout" in str(e).lower():
-                            error_msg = "网络连接失败，请检查 Base URL 是否正确。"
-                            st.error(f"❌ {error_msg}")
-                            st.caption(f"当前 Base URL: {base_url}")
-                            st.caption(f"原始错误：{e}")
+                            elif "APIConnectionError" in error_type or "connection" in str(e).lower() or "timeout" in str(e).lower():
+                                error_msg = "网络连接失败，请检查 Base URL 是否正确。"
+                                st.error(f"❌ {error_msg}")
+                                st.caption(f"当前 Base URL: {base_url}")
+                                st.caption(f"原始错误：{e}")
 
-                        else:
-                            # 其他异常
-                            error_msg = f"请求失败：{e}"
-                            st.error(f"❌ {error_msg}")
+                            else:
+                                # 其他异常
+                                error_msg = f"请求失败：{e}"
+                                st.error(f"❌ {error_msg}")
 
-                        # API 调用失败，不扣积分
-                        if not first_token_received:
-                            st.warning("⚠️ 未扣除积分，请重试。")
+                            # API 调用失败，不扣积分
+                            if not first_token_received:
+                                st.warning("⚠️ 未扣除积分，请重试。")
 
-            # 显示之前的生成结果（非流式状态下的持久化）
-            # 注意：只有在没有刚生成新结果时才显示历史记录
-            result_key = f"result_{prompt['id']}"
-            if result_key in st.session_state.results:
-                result_placeholder.markdown(
-                    f'<div class="result-area">{st.session_state.results[result_key]}</div>',
-                    unsafe_allow_html=True,
-                )
+                # 显示之前的生成结果（非流式状态下的持久化）
+                # 注意：只有在没有刚生成新结果时才显示历史记录
+                result_key = f"result_{prompt['id']}"
+                if result_key in st.session_state.results:
+                    result_placeholder.markdown(
+                        f'<div class="result-area">{st.session_state.results[result_key]}</div>',
+                        unsafe_allow_html=True,
+                    )
 
-            st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
 # 底部
@@ -1603,7 +1676,7 @@ else:
 st.markdown(
     """
 <div class="footer">
-    PromptHub AI — AI 提示词超级工作台
+    小红书爆款文案 AI 制造机 — 告别憋词，一键生成高赞笔记
 </div>
 """,
     unsafe_allow_html=True,

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@2.0.0/dist/streamlit-component-lib.min.js"></script>
+    <style>body{margin:0;padding:0;overflow:hidden;height:0}</style>
+</head>
+<body>
+<script>
+function render() {
+    var credits = parseInt(localStorage.getItem('promptHub_credits'));
+    if (isNaN(credits)) credits = 0;
+    var activated = localStorage.getItem('promptHub_activated') === 'true';
+    Streamlit.setComponentValue({credits: credits, activated: activated});
+    Streamlit.setFrameHeight(0);
+}
+Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, render);
+render();
+</script>
+</body>
+</html>

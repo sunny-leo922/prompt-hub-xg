@@ -1,0 +1,8 @@
+{
+  "name": "credits-bridge",
+  "version": "1.0.0",
+  "main": "index.html",
+  "dependencies": {
+    "streamlit-component-lib": "^2.0.0"
+  }
+}
